@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                      String              @id @default(cuid())
+  email                   String              @unique
+  password                String
+  name                    String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  emailVerificationSentAt DateTime?
+  emailVerificationToken  String?
+  emailVerified           Boolean             @default(false)
+  chatSessions            ChatSession[]
+  manuscriptDrafts        ManuscriptVersion[]
+  manuscripts             Manuscript[]
+  voiceProfiles           VoiceProfile[]
+  books                   Book[]              @relation("BooksCreatedByUser")
+
+  @@map("users")
+}
+
+model VoiceProfile {
+  id                   String                  @id @default(cuid())
+  userId               String
+  name                 String
+  biography            String?
+  signaturePhrases     String[]                @default([])
+  anchorScriptures     String[]                @default([])
+  // Structured extraction fields – each stored in its own column
+  voiceThemes          String[]                @default([])
+  toneMarkers          String[]                @default([])
+  keyMessages          String[]                @default([])
+  recurringMotifs      String[]                @default([])
+  writingStyle         Json?                   // { tone: string, rhythm: string, emphasis: string[] }
+  ministryDNA          String?
+  // Legacy fields retained for backward compatibility with older profiles
+  theologicalFramework String?
+  sampleTexts          String?
+  interviewAnswers     Json?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  manuscripts          Manuscript[]
+  embeddings           VoiceProfileEmbedding[]
+  books                Book[]
+  user                 User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("voice_profiles")
+}
+
+model Book {
+  id             String                  @id @default(cuid())
+  voiceProfileId String
+  userId         String
+  title          String
+  source         String                  @default("interview")
+  fileName       String?
+  embeddings     VoiceProfileEmbedding[]
+  createdAt      DateTime                @default(now())
+  voiceProfile   VoiceProfile            @relation(fields: [voiceProfileId], references: [id], onDelete: Cascade)
+  user           User                    @relation("BooksCreatedByUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([voiceProfileId])
+  @@index([userId])
+  @@map("books")
+}
+
+model VoiceProfileEmbedding {
+  id             String       @id @default(cuid())
+  voiceProfileId String
+  bookId         String?
+  embedding      Unsupported("vector")?
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now())
+  sourceText     String?
+  voiceProfile   VoiceProfile @relation(fields: [voiceProfileId], references: [id], onDelete: Cascade)
+  book           Book?        @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@index([voiceProfileId])
+  @@index([bookId])
+  @@map("voice_profile_embeddings")
+}
+
+model ScriptureEmbedding {
+  id            String   @id @default(cuid())
+  scriptureRef  String
+  scriptureText String
+  embedding     Unsupported("vector")?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([scriptureRef])
+  @@map("scripture_embeddings")
+}
+
+model Manuscript {
+  id             String              @id @default(cuid())
+  userId         String
+  voiceProfileId String
+  title          String
+  description    String?
+  outline        Json?
+  status         String              @default("draft")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  bookCoverUrl   String?
+  chapters       Chapter[]
+  versions       ManuscriptVersion[]
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voiceProfile   VoiceProfile        @relation(fields: [voiceProfileId], references: [id])
+
+  @@index([userId])
+  @@index([voiceProfileId])
+  @@map("manuscripts")
+}
+
+model Chapter {
+  id             String           @id @default(cuid())
+  manuscriptId   String
+  title          String
+  outlineSection String?
+  order          Int
+  content        String?
+  generatedFrom  String?
+  voiceStyle     String?
+  status         String           @default("draft")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  versions       ChapterVersion[]
+  manuscript     Manuscript       @relation(fields: [manuscriptId], references: [id], onDelete: Cascade)
+
+  @@unique([manuscriptId, order])
+  @@index([manuscriptId])
+  @@map("chapters")
+}
+
+model ManuscriptVersion {
+  id            String     @id @default(cuid())
+  manuscriptId  String
+  userId        String
+  versionNumber Int
+  title         String
+  description   String?
+  fullContent   Json
+  metadata      Json?
+  createdAt     DateTime   @default(now())
+  manuscript    Manuscript @relation(fields: [manuscriptId], references: [id], onDelete: Cascade)
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([manuscriptId, versionNumber])
+  @@index([manuscriptId])
+  @@index([userId])
+  @@map("manuscript_versions")
+}
+
+model ChapterVersion {
+  id         String   @id @default(cuid())
+  chapterId  String
+  versionNum Int
+  content    String
+  createdAt  DateTime @default(now())
+  chapter    Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@unique([chapterId, versionNum])
+  @@index([chapterId])
+  @@map("chapter_versions")
+}
+
+model ChatSession {
+  id        String        @id @default(cuid())
+  userId    String
+  title     String?
+  status    String        @default("active")
+  metadata  Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  sessionId String
+  role      String
+  content   String
+  metadata  Json?
+  createdAt DateTime    @default(now())
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+model AppCache {
+  key       String   @id
+  value     Json
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt], map: "idx_cache_expiry")
+  @@map("app_cache")
+}
+
